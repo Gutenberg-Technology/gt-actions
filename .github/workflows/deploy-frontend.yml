@@ -1,0 +1,108 @@
+---
+name: Reusable deploy frontend
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        type: string
+        description: "Environment"
+        required: true
+      git-ref:
+        type: string
+        description: "Git reference to deploy (branch, tag)"
+        required: true
+      dist-path:
+        type: string
+        description: "Folder of the built site"
+        required: true
+      artifact-name:
+        type: string
+        description: "Artifact name to Download in TGZ format"
+        required: true
+    secrets:
+      aws-access-key-id:
+        description: "AWS access key ID"
+        required: true
+      aws-secret-access-key:
+        description: "AWS secret access key"
+        required: true
+
+jobs:
+  deploy-frontend:
+    name: "Deploy"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub deployment
+        id: deployment
+        uses: avakar/create-deployment@v1
+        with:
+          ref: ${{ env.GIT_REF }}
+          environment: website-${{ env.TARGET_ENV }}
+          description: "Deploy ${{ env.GIT_SHA7 }} on website-${{ env.TARGET_ENV }}"
+          transient_environment: false # disable previous deployment automatically
+          required_contexts: "" # conditiion handled by GitHub action
+          auto_merge: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update GitHub deployment status (in progress)
+        uses: avakar/set-deployment-status@v1
+        with:
+          state: "in_progress"
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+          description: "Starting deployment"
+          environment_url: ${{ env.SITE_URL }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ inputs.artifact-name )}
+          # path: ${{ github.workspace }}
+
+      - name: untar dist
+        run: tar -xvf ${{ inputs.artifact-name )}.tgz
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ env.S3_BUCKET_REGION }}
+
+      - name: Deploy
+        uses: reggionick/s3-deploy@v3
+        with:
+          folder: ${{ inputs.dist-path }}
+          bucket: ${{ env.S3_BUCKET }}
+          bucket-region: ${{ env.S3_BUCKET_REGION }}
+          dist-id: ${{ env.DIST_ID }}
+          invalidation: /
+          delete-removed: true
+          no-cache: true
+          private: true
+          filesToInclude: ".*/*,*/*,**"
+
+      - name: Update GitHub deployment status (success)
+        if: success()
+        uses: avakar/set-deployment-status@v1
+        with:
+          state: "success"
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+          description: "Deployment finished successfully"
+          environment_url: ${{ env.SITE_URL }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update GitHub deployment status (failure)
+        if: failure()
+        uses: avakar/set-deployment-status@v1
+        with:
+          state: "failure"
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+          description: "Deployment failed"
+          environment_url: ${{ env.SITE_URL }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
