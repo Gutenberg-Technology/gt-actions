@@ -1,0 +1,108 @@
+name: Reusable build image
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        type: string
+        description: "Image Name"
+        required: true
+      working-directory:
+        type: string
+        description: "Working directory"
+        required: true
+      dockerfile:
+        type: string
+        description: "Dockerfile to build"
+        default: "Dockerfile"
+        required: false
+      build-options:
+        type: string
+        description: "Docker build options if needed"
+        default: ""
+        required: false
+      test-image:
+        type: boolean
+        description: "Test the built image"
+        default: false
+        required: false
+      test-image-config:
+        type: string
+        description: "Full path to container-structure-test config file"
+        default: ''
+        required: false
+      push-image:
+        type: boolean
+        description: "Push the built image"
+        default: false
+        required: false
+    secrets:
+      aws-access-key-id:
+        description: "AWS access key ID"
+        required: true
+      aws-secret-access-key:
+        description: "AWS secret access key"
+        required: true
+    outputs:
+      pushed-image: 
+        description: "Image name built (with its tags)"
+        value: ${{ jobs.build-test-push-image.outputs.pushed-image }} 
+
+jobs:
+  build-test-push-image:
+    name: Build Test & push image
+    runs-on: ubuntu-latest
+    outputs:
+      pushed-image: ${{ steps.push.outputs.image }} 
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          GIT_SHA: ${{ github.sha }}
+          DOCKER_BUILDKIT: 1
+        run: |
+          echo "Building image ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}:${GIT_SHA:0:7}"
+          docker build ${{ inputs.build-options }} \
+          --pull \
+          --no-cache \
+          --file ${{ inputs.working-directory }}/${{ inputs.dockerfile }} \
+          -t ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}:${GIT_SHA:0:7} \
+          -t ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}:latest \
+          ${{ inputs.working-directory }}
+
+      - name: Run container tests
+        if: inputs.test-image == true && inputs.test-image-config != ''
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          echo "Testing ${{ steps.build-image.outputs.image }}"
+          curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64 \
+          && chmod +x container-structure-test-linux-amd64 \
+          && mkdir -p $HOME/bin \
+          && export PATH=$PATH:$HOME/bin \
+          && mv container-structure-test-linux-amd64 $HOME/bin/container-structure-test \
+          && container-structure-test test -c ${{ inputs.test-image-config }} -i ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}:latest \
+          && container-structure-test test -c ${{ inputs.test-image-config }} -i ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}:${GIT_SHA:0:7}
+
+      - name: Push image on Amazon ECR
+        if: inputs.push-image == true
+        id: push
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          docker push --all-tags ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}
+          echo "::set-output name=image::${{ inputs.image-name }}:${GIT_SHA:0:7}"

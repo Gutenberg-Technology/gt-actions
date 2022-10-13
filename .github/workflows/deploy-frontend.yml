@@ -27,6 +27,9 @@ on:
       aws-secret-access-key:
         description: "AWS secret access key"
         required: true
+      github-token:
+        description: "Github Token to create GitHub deployments"
+        required: true
 
 jobs:
   deploy-frontend:
@@ -37,14 +40,14 @@ jobs:
         id: deployment
         uses: avakar/create-deployment@v1
         with:
-          ref: ${{ env.GIT_REF }}
-          environment: website-${{ env.TARGET_ENV }}
-          description: "Deploy ${{ env.GIT_SHA7 }} on website-${{ env.TARGET_ENV }}"
+          ref: ${{ inputs.git-ref }}
+          environment: ${{ inputs.env }}
+          description: "Deploy ${{ inputs.artifact-name }} version ${{ inputs.git-ref }}"
           transient_environment: false # disable previous deployment automatically
           required_contexts: "" # conditiion handled by GitHub action
           auto_merge: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.github-token }}
 
       - name: Update GitHub deployment status (in progress)
         uses: avakar/set-deployment-status@v1

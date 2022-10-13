@@ -1,0 +1,108 @@
+name: Deploy to Amazon ECS
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        type: string
+        description: "Environment"
+        required: true
+      aws-region:
+        type: string
+        description: "AWS Region to use"
+        required: false
+        default: "us-east-1"
+      tagged-image:
+        type: string
+        description: "The image name and its tag  you want to deploy"
+        required: true
+      ecs-service:
+        type: string
+        description: "ECS service name for the TD"
+        required: false
+      ecs-cluster:
+        type: string
+        description: "ECS cluster name for the TD"
+        required: true
+      ecs-task-def:
+        type: string
+        description: "Path in your repo for your task def"
+        required: true
+      container-name:
+        type: string
+        description: "Container name of your task"
+        required: true
+    secrets:
+      aws-access-key-id:
+        description: "AWS access key ID"
+        required: true
+      aws-secret-access-key:
+        description: "AWS secret access key"
+        required: true
+      github-token:
+        description: "GH token for deployment"
+        required: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ inputs.ecs-task-def }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create GitHub deployment
+        uses: chrnorm/deployment-action@v2
+        id: deployment
+        with:
+          token: ${{ secrets.github-token }}
+
+      - name: Update deployment status (In Progress)
+        uses: chrnorm/deployment-status@v2
+        with:
+          token: ${{ secrets.github-token }}
+          state: "in_progress"
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ inputs.ecs-task-def }}
+          container-name: ${{ inputs.container-name }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.tagged-image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ inputs.ecs-service }}
+          cluster: ${{ inputs.ecs-cluster }}
+
+      - name: Update deployment status (Success)
+        uses: chrnorm/deployment-status@v2
+        with:
+          token: ${{ secrets.github-token }}
+          state: "success"
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
+
+      - name: Update deployment status (Failed)
+        uses: chrnorm/deployment-status@v2
+        with:
+          token: ${{ secrets.github-token }}
+          state: "success"
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
