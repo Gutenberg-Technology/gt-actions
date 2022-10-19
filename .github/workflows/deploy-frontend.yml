@@ -8,17 +8,13 @@ on:
         type: string
         description: "Environment"
         required: true
-      git-ref:
+      working-directory:
         type: string
-        description: "Git reference to deploy (branch, tag)"
-        required: true
-      dist-path:
-        type: string
-        description: "Folder of the built site"
+        description: "Working directory where the source code is"
         required: true
       artifact-name:
         type: string
-        description: "Artifact name to Download in TGZ format"
+        description: "The name of the artifact to download"
         required: true
     secrets:
       aws-access-key-id:
@@ -36,37 +32,34 @@ jobs:
     name: "Deploy"
     runs-on: ubuntu-latest
     steps:
-      - name: Create GitHub deployment
-        id: deployment
-        uses: avakar/create-deployment@v1
-        with:
-          ref: ${{ inputs.git-ref }}
-          environment: ${{ inputs.env }}
-          description: "Deploy ${{ inputs.artifact-name }} version ${{ inputs.git-ref }}"
-          transient_environment: false # disable previous deployment automatically
-          required_contexts: "" # conditiion handled by GitHub action
-          auto_merge: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.github-token }}
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Update GitHub deployment status (in progress)
-        uses: avakar/set-deployment-status@v1
+      - name: Set environment variables
+        run: |
+          cat ${{ inputs.working-directory }}/.aws/${{ inputs.env }}.env >> $GITHUB_ENV
+          cat $GITHUB_ENV
+
+      - name: Create GitHub deployment
+        uses: chrnorm/deployment-action@v2
+        id: deployment
         with:
+          token: ${{ secrets.github-token }}
+
+      - name: Update deployment status (In Progress)
+        uses: chrnorm/deployment-status@v2
+        with:
+          token: ${{ secrets.github-token }}
           state: "in_progress"
-          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
-          description: "Starting deployment"
-          environment_url: ${{ env.SITE_URL }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
 
       - name: Download Artifacts
         uses: actions/download-artifact@v3
         with:
-          name: ${{ inputs.artifact-name )}
-          # path: ${{ github.workspace }}
+          name: ${{ inputs.artifact-name }}
 
-      - name: untar dist
-        run: tar -xvf ${{ inputs.artifact-name )}.tgz
+      - name: Untar artifact
+        run: tar -xvf ${{ inputs.artifact-name }}.tgz
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -75,10 +68,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
           aws-region: ${{ env.S3_BUCKET_REGION }}
 
-      - name: Deploy
-        uses: reggionick/s3-deploy@v3
+      - name: Deploy to S3
+        uses: reggionick/s3-deploy@v3.2.0
         with:
-          folder: ${{ inputs.dist-path }}
+          folder: ${{ env.DIST_PATH }}
           bucket: ${{ env.S3_BUCKET }}
           bucket-region: ${{ env.S3_BUCKET_REGION }}
           dist-id: ${{ env.DIST_ID }}
@@ -88,24 +81,19 @@ jobs:
           private: true
           filesToInclude: ".*/*,*/*,**"
 
-      - name: Update GitHub deployment status (success)
+      - name: Update deployment status (Success)
         if: success()
-        uses: avakar/set-deployment-status@v1
+        uses: chrnorm/deployment-status@v2
         with:
+          token: ${{ secrets.github-token }}
           state: "success"
-          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
-          description: "Deployment finished successfully"
-          environment_url: ${{ env.SITE_URL }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
 
-      - name: Update GitHub deployment status (failure)
+      - name: Update deployment status (Failed)
         if: failure()
-        uses: avakar/set-deployment-status@v1
+        uses: chrnorm/deployment-status@v2
         with:
+          token: ${{ secrets.github-token }}
           state: "failure"
-          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
-          description: "Deployment failed"
-          environment_url: ${{ env.SITE_URL }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          deployment-id: ${{ steps.deployment.outputs.deployment_id }}
+

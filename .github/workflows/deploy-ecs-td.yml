@@ -94,6 +94,7 @@ jobs:
           cluster: ${{ inputs.ecs-cluster }}
 
       - name: Update deployment status (Success)
+        if: success()
         uses: chrnorm/deployment-status@v2
         with:
           token: ${{ secrets.github-token }}
@@ -101,8 +102,9 @@ jobs:
           deployment-id: ${{ steps.deployment.outputs.deployment_id }}
 
       - name: Update deployment status (Failed)
+        if: failure()
         uses: chrnorm/deployment-status@v2
         with:
           token: ${{ secrets.github-token }}
-          state: "success"
+          state: "failure"
           deployment-id: ${{ steps.deployment.outputs.deployment_id }}

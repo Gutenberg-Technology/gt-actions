@@ -5,11 +5,11 @@ on:
     inputs:
       image-name:
         type: string
-        description: "Image Name"
+        description: "Image name without any tags"
         required: true
       working-directory:
         type: string
-        description: "Working directory"
+        description: "Working where the Dockerfile is stored"
         required: true
       dockerfile:
         type: string
