@@ -105,4 +105,4 @@ jobs:
           GIT_SHA: ${{ github.sha }}
         run: |
           docker push --all-tags ${{ steps.login-ecr.outputs.registry }}/${{ inputs.image-name }}
-          echo "::set-output name=image::${{ inputs.image-name }}:${GIT_SHA:0:7}"
+          echo "image=${{ inputs.image-name }}:${GIT_SHA:0:7}" >> $GITHUB_OUTPUT
